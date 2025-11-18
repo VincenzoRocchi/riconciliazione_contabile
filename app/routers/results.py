@@ -263,9 +263,9 @@ def _render_results_page(result) -> HTMLResponse:
     detail_section_html = ""
     if detail_table_html:
         detail_section_html = f"""
-        <details class="detail-toggle">
+        <details class="section-toggle">
             <summary class="section-header">Dettaglio completo ({detail_row_count} righe)</summary>
-            <div class="detail-content">
+            <div class="section-content">
                 {detail_table_html}
             </div>
         </details>
@@ -398,26 +398,6 @@ def _render_results_page(result) -> HTMLResponse:
             .results-table tr:nth-child(even) {{
                 background: #f9fafb;
             }}
-            .detail-toggle {{
-                margin-top: 30px;
-                border: 1px solid #d1d5db;
-                border-radius: 10px;
-                background: #fafafa;
-            }}
-            .detail-toggle summary {{
-                cursor: pointer;
-                font-weight: 600;
-                padding: 14px 18px;
-            }}
-            .detail-toggle[open] summary {{
-                border-bottom: 1px solid #e0e0e0;
-                background: #f0f4ff;
-            }}
-            .detail-content {{
-                max-height: 70vh;
-                overflow: auto;
-                padding: 16px 18px 24px;
-            }}
             .actions {{
                 margin-top: 40px;
                 padding-top: 30px;
@@ -487,9 +467,21 @@ def _render_results_page(result) -> HTMLResponse:
                 color: white;
                 font-size: 1.1em;
                 list-style: none;
+                position: relative;
+                padding-left: 50px;
             }}
             .section-header::-webkit-details-marker {{
                 display: none;
+            }}
+            .section-header::before {{
+                content: '▶';
+                position: absolute;
+                left: 20px;
+                transition: transform 0.2s ease;
+                font-size: 0.9em;
+            }}
+            .section-toggle[open] .section-header::before {{
+                transform: rotate(90deg);
             }}
             .section-toggle[open] .section-header {{
                 border-bottom: 1px solid #374151;
@@ -497,6 +489,8 @@ def _render_results_page(result) -> HTMLResponse:
             .section-content {{
                 padding: 0;
                 background: white;
+                max-height: 70vh;
+                overflow: auto;
             }}
             .section-content .results-table {{
                 margin-top: 0;
