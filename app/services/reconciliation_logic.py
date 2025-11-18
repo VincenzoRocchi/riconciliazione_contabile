@@ -14,6 +14,7 @@ I saldi sono calcolati solo a scopo informativo e NON vengono usati per il match
 import pandas as pd
 from typing import Dict, Any, Tuple, List
 import logging
+from itertools import combinations
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,9 @@ def riconcilia_saldi(
     contab['importo'] = pd.to_numeric(contab['importo'], errors='coerce')
     
     # Aggiungi colonna per stato match
+    # IMPORTANTE: match_id traccia quali voci sono state matchate per prevenire doppi match
+    # Quando una voce viene matchata, viene settato contab.at[idx, 'match_id'] = idx_b
+    # Questo garantisce che la stessa voce non possa essere rimatchata
     banca['match_id'] = None
     contab['match_id'] = None
     
@@ -172,30 +176,155 @@ def riconcilia_saldi(
                 return abs((data_b - candidate_date).days)
             
             best_idx = min(candidati.index, key=lambda idx_c: _date_diff(candidati.loc[idx_c]))
-            best_match = contab.loc[best_idx]
             
-            contab.at[best_idx, 'match_id'] = idx_b
-            used_contab_indices.add(best_idx)
-            status = "OK"
-            desc_match = best_match.get('descrizione', '')
-            data_match = best_match['data']
-            importo_match = best_match['importo']
-            
-            # Aggiorna tracker duplicati (il conteggio contab verrà aggiornato dopo)
-            if rounded_imp not in duplicates_tracker:
-                duplicates_tracker[rounded_imp] = {
-                    'importo': rounded_imp,
-                    'banca_count': 0,
-                    'contab_count': 0,  # Verrà aggiornato dopo
-                    'matched_count': 0
-                }
-            duplicates_tracker[rounded_imp]['matched_count'] = duplicates_tracker[rounded_imp].get('matched_count', 0) + 1
-            
-            if pd.notna(data_b) and pd.notna(data_match):
-                date_diff_days = abs((data_b - data_match).days)
-                note = f"Δ data {date_diff_days}g"
-                if date_diff_days > date_tolerance_days:
-                    note += " (fuori tolleranza)"
+            # SICUREZZA: Verifica doppio check che la voce non sia già stata matchata
+            # (potrebbe essere successo tra il filtro e qui, anche se molto raro)
+            if pd.notna(contab.at[best_idx, 'match_id']):
+                # Voce già matchata, salta e passa al brute force
+                logger.debug(f"Voce {best_idx} già matchata durante il matching diretto, passa al brute force")
+            else:
+                best_match = contab.loc[best_idx]
+                
+                # Marca come matchata IMMEDIATAMENTE per prevenire doppi match
+                contab.at[best_idx, 'match_id'] = idx_b
+                used_contab_indices.add(best_idx)
+                
+                status = "OK"
+                desc_match = best_match.get('descrizione', '')
+                data_match = best_match['data']
+                importo_match = best_match['importo']
+                
+                # Aggiorna tracker duplicati (il conteggio contab verrà aggiornato dopo)
+                if rounded_imp not in duplicates_tracker:
+                    duplicates_tracker[rounded_imp] = {
+                        'importo': rounded_imp,
+                        'banca_count': 0,
+                        'contab_count': 0,  # Verrà aggiornato dopo
+                        'matched_count': 0
+                    }
+                duplicates_tracker[rounded_imp]['matched_count'] = duplicates_tracker[rounded_imp].get('matched_count', 0) + 1
+                
+                if pd.notna(data_b) and pd.notna(data_match):
+                    date_diff_days = abs((data_b - data_match).days)
+                    note = f"Δ data {date_diff_days}g"
+                    if date_diff_days > date_tolerance_days:
+                        note += " (fuori tolleranza)"
+        
+        # Se non abbiamo ancora trovato un match (status è ancora MANCANTE), prova brute force
+        if status == "MANCANTE":
+            # ========================================================================
+            # BRUTE FORCE: Cerca combinazioni di 2-5 voci in contabilità
+            # ========================================================================
+            # Per assegni/pagamenti grandi che vengono registrati come più voci separate
+            # nello stesso giorno, cerchiamo se la somma di più voci corrisponde
+            # ========================================================================
+            if pd.notna(data_b):
+                # Trova tutte le voci in contabilità non ancora matchate dello stesso giorno
+                # (o entro 1 giorno di tolleranza per sicurezza)
+                unmatched_contab = contab[
+                    (contab['match_id'].isnull()) &
+                    (contab['data'].notna()) &
+                    (abs((contab['data'] - data_b).dt.days) <= 1)
+                ]
+                
+                if len(unmatched_contab) >= 2:
+                    unmatched_list = list(unmatched_contab.index)
+                    found_combination = False
+                    max_combinations = 5  # Massimo numero di voci da combinare
+                    max_iterations = 10000  # Limite sicurezza per evitare loop infiniti
+                    iteration_count = 0
+                    
+                    # Prova combinazioni di 2, poi 3, poi 4, poi 5 voci
+                    for combo_size in range(2, min(max_combinations + 1, len(unmatched_list) + 1)):
+                        if found_combination:
+                            break
+                        
+                        # Usa combinations per generare tutte le combinazioni
+                        for combo_indices in combinations(unmatched_list, combo_size):
+                            iteration_count += 1
+                            
+                            # Check periodico: se abbiamo fatto troppe iterazioni, fermati
+                            if iteration_count > max_iterations:
+                                logger.warning(f"Raggiunto limite iterazioni ({max_iterations}) per brute force, fermato")
+                                found_combination = True  # Forza uscita dal loop esterno
+                                break
+                            
+                            # SICUREZZA: Verifica che tutte le voci siano ancora non matchate
+                            # (potrebbero essere state matchate in un'altra combinazione o in un match diretto precedente)
+                            all_unmatched = all(pd.isna(contab.at[idx, 'match_id']) for idx in combo_indices)
+                            if not all_unmatched:
+                                continue
+                            
+                            # Calcola somma degli importi
+                            importi = []
+                            descrizioni = []
+                            date_list = []
+                            
+                            for idx in combo_indices:
+                                # SICUREZZA: Doppio check che la voce non sia stata matchata durante il calcolo
+                                if pd.notna(contab.at[idx, 'match_id']):
+                                    # Voce matchata durante il calcolo, salta questa combinazione
+                                    break
+                                
+                                row = contab.loc[idx]
+                                imp = abs(row['importo'])
+                                if pd.isna(imp):
+                                    break
+                                importi.append(imp)
+                                descrizioni.append(row.get('descrizione', ''))
+                                if pd.notna(row['data']):
+                                    date_list.append(row['data'])
+                            
+                            # Se qualche importo era NaN o voce matchata, salta questa combinazione
+                            if len(importi) != combo_size:
+                                continue
+                            
+                            somma = sum(importi)
+                            
+                            # Verifica se la somma corrisponde all'importo bancario
+                            if abs(somma - imp_b) <= amount_tolerance:
+                                # SICUREZZA: Ultimo check prima di matchare - verifica che tutte le voci siano ancora non matchate
+                                final_check = all(pd.isna(contab.at[idx, 'match_id']) for idx in combo_indices)
+                                if not final_check:
+                                    logger.warning(f"Combinazione trovata ma alcune voci già matchate, skip")
+                                    continue
+                                
+                                # Trovata combinazione! Marca tutte le voci come matchate IMMEDIATAMENTE
+                                for idx in combo_indices:
+                                    # SICUREZZA: Setta match_id prima di aggiungere a used_contab_indices
+                                    contab.at[idx, 'match_id'] = idx_b
+                                    used_contab_indices.add(idx)
+                                
+                                status = "OK"
+                                desc_match = " + ".join(descrizioni)
+                                data_match = date_list[0] if date_list else None
+                                importo_match = somma
+                                
+                                # Calcola differenza date (media delle date)
+                                if len(date_list) > 0:
+                                    avg_date = pd.Timestamp(sum((d - date_list[0]).total_seconds() for d in date_list) / len(date_list) + date_list[0].timestamp(), unit='s')
+                                    date_diff_days = abs((data_b - avg_date).days)
+                                    note = f"Combinazione {combo_size} voci (Δ data {date_diff_days}g)"
+                                else:
+                                    note = f"Combinazione {combo_size} voci"
+                                
+                                # Aggiorna tracker duplicati
+                                if rounded_imp not in duplicates_tracker:
+                                    duplicates_tracker[rounded_imp] = {
+                                        'importo': rounded_imp,
+                                        'banca_count': 0,
+                                        'contab_count': 0,
+                                        'matched_count': 0
+                                    }
+                                duplicates_tracker[rounded_imp]['matched_count'] = duplicates_tracker[rounded_imp].get('matched_count', 0) + 1
+                                
+                                found_combination = True
+                                logger.info(f"Trovata combinazione {combo_size} voci per importo {imp_b}: somma = {somma}")
+                                break
+                        
+                        # Se abbiamo trovato una combinazione o raggiunto il limite, esci dal loop delle dimensioni
+                        if found_combination or iteration_count > max_iterations:
+                            break
         # Aggiorna conteggio banca per duplicati
         if rounded_imp in duplicates_tracker:
             duplicates_tracker[rounded_imp]['banca_count'] = banca_amount_counts.get(rounded_imp, 0)
@@ -261,6 +390,16 @@ def riconcilia_saldi(
         })
     
     risultati_df = pd.DataFrame(risultati)
+    
+    # ============================================================================
+    # Identifica commissioni piccole non matchate (probabilmente registrate in bulk)
+    # ============================================================================
+    small_commissions_threshold = 10.0  # Soglia per considerare una voce "piccola" (commissioni)
+    small_unmatched = risultati_df[
+        (risultati_df['Stato'] == 'MANCANTE') &
+        (risultati_df['Importo Banca'].notna()) &
+        (risultati_df['Importo Banca'].abs() <= small_commissions_threshold)
+    ]
     
     # ============================================================================
     # Calcolo Statistiche
@@ -330,7 +469,9 @@ def riconcilia_saldi(
         "importo_mancante": float(missing_amount),
         "importo_orfano": float(orfani_amount),
         "is_balanced": abs(differenza_saldo) < amount_tolerance,
-        "duplicates": duplicates_report  # Lista di importi duplicati con dettagli
+        "duplicates": duplicates_report,  # Lista di importi duplicati con dettagli
+        "small_commissions_unmatched": len(small_unmatched),  # Numero di commissioni piccole non matchate
+        "small_commissions_list": small_unmatched[['Data Banca', 'Importo Banca', 'Descrizione Banca']].to_dict('records') if not small_unmatched.empty else []  # Lista dettagliata delle commissioni piccole
     }
     
     logger.info(f"Reconciliation complete: {matched} matched, {missing} missing, {orfani_count} orphans")
