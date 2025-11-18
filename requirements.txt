@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart   # Per l'upload dei file
+pandas             # Per logica di riconciliazione
+numpy
+pydantic           # Per lo schema enforcement
+pydantic-settings  # Per gestione settings da .env
+pdfplumber         # Per estrazione dati da PDF nativi (locale)
+python-dotenv      # Per gestire variabili d'ambiente
+markdown           # Per renderizzare documentazione Markdown
+

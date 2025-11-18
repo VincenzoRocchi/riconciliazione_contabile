@@ -1,0 +1,15 @@
+services:
+  # Backend Riconciliazione Contabile
+  web:
+    build: .
+    container_name: riconcilia_contabile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./app:/code/app             # Sync codice live
+      - ./data_input:/code/data_input   # Accesso ai PDF locali
+      - ./data_output:/code/data_output # Dove salvare i report
+    ports:
+      - "8000:8000"  # Esposto direttamente per uso locale
+    env_file:
+      - .env
+    restart: unless-stopped
