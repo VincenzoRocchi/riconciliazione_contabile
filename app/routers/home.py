@@ -230,7 +230,7 @@ async def home():
                                 <input type="file" id="estratto_conto" name="estratto_conto" form="uploadForm" accept=".pdf" required>
                                 <label for="estratto_conto">Seleziona file PDF</label>
                                 <div class="file-name" id="estratto-name">Nessun file selezionato</div>
-            </div>
+                            </div>
                             <div class="helper-text">Il file verrà elaborato localmente. Nessun dato lascia il server.</div>
                             <div style="margin-top:16px;">
                                 <label for="bank_type" class="section-title" style="font-size:0.85rem; letter-spacing:0.08em;">Tipo di banca</label>
@@ -288,21 +288,45 @@ async def home():
             </div>
         </div>
         <script>
-            function bindFileInput(inputId, labelId) {
-                const input = document.getElementById(inputId);
-                const label = document.getElementById(labelId);
-                input.addEventListener('change', (e) => {
-                const name = e.target.files[0]?.name || 'Nessun file selezionato';
-                    label.textContent = name;
-                });
-            }
-            bindFileInput('estratto_conto', 'estratto-name');
-            bindFileInput('scheda_contabile', 'scheda-name');
-            
-            document.getElementById('uploadForm').addEventListener('submit', function() {
-                document.getElementById('submitBtn').disabled = true;
-                document.getElementById('loading').classList.add('active');
-            });
+            (function() {
+                'use strict';
+                
+                function bindFileInput(inputId, labelId) {
+                    var input = document.getElementById(inputId);
+                    var label = document.getElementById(labelId);
+                    
+                    if (!input || !label) {
+                        return;
+                    }
+                    
+                    input.addEventListener('change', function(e) {
+                        var file = e.target.files[0];
+                        var name = file ? file.name : 'Nessun file selezionato';
+                        label.textContent = name;
+                    });
+                }
+                
+                function init() {
+                    bindFileInput('estratto_conto', 'estratto-name');
+                    bindFileInput('scheda_contabile', 'scheda-name');
+                    
+                    var uploadForm = document.getElementById('uploadForm');
+                    if (uploadForm) {
+                        uploadForm.addEventListener('submit', function() {
+                            var submitBtn = document.getElementById('submitBtn');
+                            var loading = document.getElementById('loading');
+                            if (submitBtn) submitBtn.disabled = true;
+                            if (loading) loading.classList.add('active');
+                        });
+                    }
+                }
+                
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', init);
+                } else {
+                    init();
+                }
+            })();
         </script>
     </body>
     </html>

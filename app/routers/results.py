@@ -3,7 +3,7 @@ Pagina risultati riconciliazione
 Mostra i risultati del controllo in formato HTML moderno
 """
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import logging
 from app.routers.processing import jobs_storage
 from app.core.models import ProcessingStatus
@@ -32,19 +32,20 @@ async def show_results(job_id: str):
         raise HTTPException(status_code=404, detail="Result not found")
     
     # Renderizza pagina risultati
-    return _render_results_page(result)
+    return _render_results_page(result, job_id)
 
 
 @router.post("/results/{job_id}/cleanup")
 async def cleanup_result(job_id: str):
     """
-    Rimuove il job dalla memoria dopo che l'utente ha salvato/stampato il report.
+    Rimuove il job dalla memoria del server quando l'utente ha terminato la consultazione dei risultati.
+    Reindirizza alla home page dopo l'eliminazione.
     """
     if job_id not in jobs_storage:
         raise HTTPException(status_code=404, detail="Job not found")
     
     del jobs_storage[job_id]
-    return JSONResponse({"status": "deleted"})
+    return RedirectResponse(url="/", status_code=303)
 
 
 def _render_loading_page(job_id: str, status: str) -> HTMLResponse:
@@ -119,11 +120,10 @@ def _render_loading_page(job_id: str, status: str) -> HTMLResponse:
     return HTMLResponse(content=html_content)
 
 
-def _render_results_page(result) -> HTMLResponse:
+def _render_results_page(result, job_id: str) -> HTMLResponse:
     """Pagina risultati completa"""
     matching = result.matching_result
     summary = matching.summary
-    job_id = getattr(result, "job_id", "")
     
     # Determina colore in base al risultato
     if result.overall_verdict == "valid":
@@ -400,23 +400,34 @@ def _render_results_page(result) -> HTMLResponse:
             }}
             .actions {{
                 margin-top: 40px;
-                padding-top: 30px;
-                border-top: 2px solid #eee;
+                padding-top: 35px;
+                border-top: 2px solid #e5e7eb;
                 text-align: center;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 12px;
             }}
             .btn {{
                 display: inline-block;
-                padding: 12px 24px;
+                padding: 14px 28px;
                 background: #667eea;
                 color: white;
                 text-decoration: none;
-                border-radius: 8px;
-                margin: 0 10px;
+                border-radius: 10px;
                 font-weight: 600;
-                transition: background 0.3s;
+                font-size: 0.95em;
+                border: none;
+                transition: all 0.2s ease;
+                min-width: 140px;
             }}
             .btn:hover {{
                 background: #5568d3;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }}
+            .btn:active {{
+                transform: translateY(0);
             }}
             .btn-secondary {{
                 background: #757575;
@@ -424,11 +435,52 @@ def _render_results_page(result) -> HTMLResponse:
             .btn-secondary:hover {{
                 background: #616161;
             }}
-            .print-note {{
-                margin-top: 10px;
-                text-align: center;
-                color: #777;
-                font-size: 0.9em;
+            .info-note {{
+                margin-top: 30px;
+                margin-bottom: 30px;
+                padding: 20px 24px;
+                background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+                border-left: 5px solid #0284c7;
+                border-radius: 10px;
+                color: #0c4a6e;
+                font-size: 0.95em;
+                line-height: 1.7;
+                box-shadow: 0 2px 8px rgba(2, 132, 199, 0.1);
+            }}
+            .info-note strong {{
+                color: #0369a1;
+                font-weight: 600;
+                display: block;
+                margin-bottom: 8px;
+                font-size: 1.05em;
+            }}
+            .btn-danger {{
+                background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+                box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+            }}
+            .btn-danger:hover {{
+                background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+                box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
+                transform: translateY(-1px);
+            }}
+            .btn-danger:active {{
+                transform: translateY(0);
+            }}
+            .btn-success {{
+                background: linear-gradient(135deg, #15803d 0%, #166534 100%);
+                box-shadow: 0 4px 12px rgba(21, 128, 61, 0.3);
+            }}
+            .btn-success:hover {{
+                background: linear-gradient(135deg, #166534 0%, #14532d 100%);
+                box-shadow: 0 6px 16px rgba(21, 128, 61, 0.4);
+                transform: translateY(-1px);
+            }}
+            .btn-success:active {{
+                transform: translateY(0);
+            }}
+            .btn {{
+                transition: all 0.2s ease;
+                cursor: pointer;
             }}
             .saldo-section {{
                 background: #e3f2fd;
@@ -541,14 +593,15 @@ def _render_results_page(result) -> HTMLResponse:
                         <h4>Voci Orfane</h4>
                         <div class="value error">{summary.get('orfani_in_contabilita', 0)}</div>
                     </div>
-                    <div class="stat-card">
-                        <h4>Completion Rate</h4>
-                        <div class="value">{summary.get('completion_rate', 0):.1f}%</div>
-                    </div>
                 </div>
                 
                 <div class="saldo-section">
-                    <h3>💰 Verifica Saldi</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="margin: 0;">💰 Verifica Saldi</h3>
+                        <div style="background: #111827; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 600;">
+                            Completion Rate: {summary.get('completion_rate', 0):.1f}%
+                        </div>
+                    </div>
                     <div class="saldo-row">
                         <span>Saldo Estratto Conto:</span>
                         <span>€ {summary.get('saldo_banca', 0):,.2f}</span>
@@ -573,30 +626,21 @@ def _render_results_page(result) -> HTMLResponse:
                 
                 {detail_section_html}
                 
+                <div class="info-note">
+                    <strong>⚠️ Azione richiesta</strong>
+                    Dopo aver consultato i risultati, clicca sul pulsante "Elimina job" per rimuovere i dati dalla memoria del server. 
+                    Se necessario, puoi utilizzare la funzione di stampa del browser (Ctrl+P / Cmd+P) o fare uno screenshot prima di eliminare il job.
+                </div>
+                
                 <div class="actions">
-                    <button type="button" class="btn" id="printBtn">Stampa o salva in PDF</button>
-                    <a href="/" class="btn btn-secondary">Nuova riconciliazione</a>
+                    <form method="POST" action="/results/{job_id}/cleanup" style="display: inline;" onsubmit="return confirm('Sei sicuro di voler eliminare questo job? I dati verranno rimossi dalla memoria del server.');">
+                        <button type="submit" class="btn btn-danger">Elimina job</button>
+                    </form>
+                    <a href="/" class="btn btn-success">Nuova riconciliazione</a>
                     <a href="/test-ocr" class="btn btn-secondary">Test OCR</a>
                 </div>
-                <p class="print-note">Dopo la stampa/salvataggio il report viene eliminato dalla memoria.</p>
             </div>
         </div>
-        <script>
-            const printBtn = document.getElementById('printBtn');
-            if (printBtn) {{
-                printBtn.addEventListener('click', async () => {{
-                    printBtn.disabled = true;
-                    window.print();
-                    try {{
-                        await fetch('/results/{job_id}/cleanup', {{
-                            method: 'POST'
-                        }});
-                    }} catch (error) {{
-                        console.error('Cleanup failed', error);
-                    }}
-                }});
-            }}
-        </script>
     </body>
     </html>
     """

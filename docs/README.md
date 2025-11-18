@@ -71,7 +71,9 @@ docker compose up -d --build
 3. Carica l'estratto conto bancario e la scheda contabile
 4. Clicca "Avvia riconciliazione"
 5. Attendi il completamento e visualizza i risultati nella pagina dedicata
-6. Stampa o salva il report in PDF (i dati vengono eliminati dalla memoria dopo la stampa)
+6. Consulta i risultati nella pagina HTML
+7. Dopo aver consultato i risultati, clicca su "Elimina job" per rimuovere i dati dalla memoria del server
+8. Puoi utilizzare la funzione di stampa del browser (Ctrl+P / Cmd+P) o fare uno screenshot se necessario
 
 ### Test Parsing (Consigliato Prima)
 
@@ -142,7 +144,7 @@ Il report HTML include:
   
 - **Dettaglio completo**: Tabella espandibile con tutte le voci e stato matching
 
-I report vengono mantenuti in memoria fino alla stampa/salvataggio da parte dell'utente, poi vengono eliminati automaticamente. Una pulizia automatica viene eseguita anche ogni giorno a mezzanotte per rimuovere job vecchi.
+I report vengono mantenuti in memoria fino a quando l'utente non clicca sul pulsante "Elimina job" nella pagina dei risultati. Una pulizia automatica viene eseguita anche ogni giorno a mezzanotte per rimuovere job vecchi non eliminati manualmente.
 
 ## Reverse Proxy (Opzionale)
 
@@ -173,7 +175,7 @@ Esempio configurazione NPM:
 - **Banche supportate**: Credit Agricole (altre in arrivo)
 - **Formati valuta**: Gestisce automaticamente italiano (1.250,50) e inglese (1,250.50)
 - **Date**: Gestisce formati vari (DD/MM/YYYY, DD.MM.YY, formato compatto 011024!)
-- **Gestione memoria**: I job vengono eliminati automaticamente dopo la stampa del report e ogni giorno a mezzanotte
+- **Gestione memoria**: I job vengono eliminati manualmente dall'utente tramite il pulsante "Elimina job" nella pagina risultati, oppure automaticamente ogni giorno a mezzanotte se non eliminati manualmente
 - **Configurazione**: Parametri configurabili via `.env` (tolleranza importi, tolleranza date, livello logging)
 
 ## Troubleshooting
