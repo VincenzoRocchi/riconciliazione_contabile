@@ -49,6 +49,68 @@ CONTABILE_FOOTER_KEYWORDS = {
 DATE_FORMATS = ["%d.%m.%y", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%d/%m/%y"]
 
 
+def validate_pdf(pdf_path: str) -> bool:
+    """
+    Valida che il PDF sia leggibile e contenga almeno una pagina prima del parsing.
+    
+    Args:
+        pdf_path: Percorso del file PDF
+        
+    Returns:
+        True se il PDF è valido, False altrimenti
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            if len(pdf.pages) == 0:
+                logger.warning(f"PDF {pdf_path} has no pages")
+                return False
+            return True
+    except Exception as e:
+        logger.error(f"Error validating PDF {pdf_path}: {e}")
+        return False
+
+
+def validate_transaction(tx: Dict[str, Any]) -> bool:
+    """
+    Valida che una transazione estratta abbia tutti i campi necessari e valori validi.
+    
+    Args:
+        tx: Dizionario con i dati della transazione
+        
+    Returns:
+        True se la transazione è valida, False altrimenti
+    """
+    if not isinstance(tx, dict):
+        return False
+    
+    # Verifica campi obbligatori
+    required_fields = ['data', 'importo']
+    for field in required_fields:
+        if field not in tx:
+            logger.debug(f"Transaction missing required field: {field}")
+            return False
+        if tx[field] is None:
+            logger.debug(f"Transaction has None value for field: {field}")
+            return False
+    
+    # Verifica che l'importo sia un numero valido e positivo
+    try:
+        importo = float(tx['importo'])
+        if importo <= 0:
+            logger.debug(f"Transaction has non-positive importo: {importo}")
+            return False
+    except (ValueError, TypeError):
+        logger.debug(f"Transaction has invalid importo: {tx['importo']}")
+        return False
+    
+    # Verifica che la data sia valida (già dovrebbe essere un date object)
+    if not isinstance(tx['data'], (pd.Timestamp, datetime)) and tx['data'] is not None:
+        # Se non è già un oggetto data, potrebbe essere un problema (solo debug, non critico)
+        logger.debug(f"Transaction has unexpected data type: {type(tx['data'])}")
+    
+    return True
+
+
 def group_words_by_rows(words: List[dict], tolerance: float = 2.5) -> List[Tuple[float, List[dict]]]:
     """
     Raggruppa le parole estratte da pdfplumber per riga (coordinate Y simili).
@@ -325,6 +387,11 @@ def parse_scheda_contabile_wolters_kluwer(pdf_path: str) -> pd.DataFrame:
     Strategia: usa extract_words() + filtri header/footer + coordinate X fisse.
     """
     logger.info(f"Parsing scheda contabile Wolters Kluwer (DETERMINISTIC COORDINATE-BASED): {pdf_path}")
+    
+    # Valida PDF prima del parsing
+    if not validate_pdf(pdf_path):
+        raise ValueError(f"Invalid or unreadable PDF: {pdf_path}")
+    
     rows = []
     
     try:
@@ -421,7 +488,7 @@ def parse_scheda_contabile_wolters_kluwer(pdf_path: str) -> pd.DataFrame:
                     
                     # Crea voci separate per DARE e AVERE
                     if dare > 0:
-                        rows.append({
+                        tx_dare = {
                             "data": date_obj,
                             "descrizione": desc,
                             "dare": dare,
@@ -429,10 +496,12 @@ def parse_scheda_contabile_wolters_kluwer(pdf_path: str) -> pd.DataFrame:
                             "importo": abs(dare),  # Valore assoluto
                             "tipo": "DARE",
                             "fonte": "CONTABILITA"
-                        })
+                        }
+                        if validate_transaction(tx_dare):
+                            rows.append(tx_dare)
                     
                     if avere > 0:
-                        rows.append({
+                        tx_avere = {
                             "data": date_obj,
                             "descrizione": desc,
                             "dare": 0.0,
@@ -440,7 +509,9 @@ def parse_scheda_contabile_wolters_kluwer(pdf_path: str) -> pd.DataFrame:
                             "importo": abs(avere),  # Valore assoluto
                             "tipo": "AVERE",
                             "fonte": "CONTABILITA"
-                        })
+                        }
+                        if validate_transaction(tx_avere):
+                            rows.append(tx_avere)
         
         if not rows:
             logger.warning("No transactions found in scheda contabile Wolters Kluwer")
@@ -489,6 +560,11 @@ def parse_estratto_conto_credit_agricole(pdf_path: str) -> pd.DataFrame:
     
     """
     logger.info(f"Parsing estratto conto Credit Agricole (DETERMINISTIC COORDINATE-BASED): {pdf_path}")
+    
+    # Valida PDF prima del parsing
+    if not validate_pdf(pdf_path):
+        raise ValueError(f"Invalid or unreadable PDF: {pdf_path}")
+    
     rows = []
     
     try:
@@ -558,8 +634,12 @@ def parse_estratto_conto_credit_agricole(pdf_path: str) -> pd.DataFrame:
                     if not transaction:
                         continue
                     
-                    rows.append(transaction)
-                    page_rows += 1
+                    # Valida transazione prima di aggiungerla
+                    if validate_transaction(transaction):
+                        rows.append(transaction)
+                        page_rows += 1
+                    else:
+                        logger.debug(f"Skipping invalid transaction on page {page_num + 1}")
                 
         
         if not rows:

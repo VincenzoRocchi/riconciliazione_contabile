@@ -12,7 +12,7 @@ Il matching viene fatto SOLO su:
 I saldi sono calcolati solo a scopo informativo e NON vengono usati per il matching.
 """
 import pandas as pd
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -83,8 +83,35 @@ def riconcilia_saldi(
     banca['match_id'] = None
     contab['match_id'] = None
     
+    # ============================================================================
+    # Costruzione indici per matching più veloce
+    # ============================================================================
+    # Crea indici per importi nella contabilità per ricerca O(1) invece di O(n)
+    # L'indice mappa importo -> lista di indici con quell'importo (entro tolleranza)
+    def build_amount_index(df: pd.DataFrame, tolerance: float) -> Dict[float, List[Any]]:
+        """
+        Costruisce un indice che mappa importi (arrotondati alla tolleranza) a liste di indici.
+        Permette ricerca veloce di candidati con importo simile.
+        """
+        index: Dict[float, List[Any]] = {}
+        for idx, row in df.iterrows():
+            amount = abs(row['importo'])
+            if pd.isna(amount):
+                continue
+            # Arrotonda alla tolleranza per raggruppare importi simili
+            rounded_amount = round(amount / tolerance) * tolerance
+            if rounded_amount not in index:
+                index[rounded_amount] = []
+            index[rounded_amount].append(idx)
+        return index
+    
+    contab_amount_index = build_amount_index(contab, amount_tolerance)
+    
     risultati = []
     used_contab_indices = set()
+    
+    # Traccia duplicati per report
+    duplicates_tracker: Dict[float, Dict[str, Any]] = {}  # importo -> {banca_count, contab_count, matched_count}
     
     # ============================================================================
     # ITERAZIONE 1: Verifica Estratto Conto → Scheda Contabile
@@ -98,6 +125,10 @@ def riconcilia_saldi(
     #
     # NOTA: Il saldo NON viene usato per il matching, solo importo e data.
     # ============================================================================
+    
+    # Traccia importi per rilevare duplicati
+    banca_amount_counts: Dict[float, int] = {}
+    
     for idx_b, row_b in banca.iterrows():
         # Estrai importo e data dal movimento bancario
         imp_b = abs(row_b['importo'])  # Usa valore assoluto per matching (ignora segno)
@@ -105,14 +136,23 @@ def riconcilia_saldi(
         
         # Skip se importo mancante/NaN
         if pd.isna(imp_b):
-            logger.warning(f"Skipping bank transaction {idx_b} due to missing importo")
+            logger.debug(f"Skipping bank transaction {idx_b} due to missing importo")
             continue
         
-        # Cerca candidati nella scheda contabile che matchano:
-        # Trova controparti non ancora usate con importo coerente
-        candidati = contab[
-            (contab['match_id'].isnull()) &
-            (abs(abs(contab['importo']) - imp_b) <= amount_tolerance)
+        # Traccia conteggio importi per duplicati
+        rounded_imp = round(imp_b / amount_tolerance) * amount_tolerance
+        banca_amount_counts[rounded_imp] = banca_amount_counts.get(rounded_imp, 0) + 1
+        
+        # Usa indice per ricerca veloce di candidati
+        # Cerca nell'indice importi simili (entro tolleranza)
+        candidate_indices = []
+        for indexed_amount in contab_amount_index.keys():
+            if abs(indexed_amount - imp_b) <= amount_tolerance:
+                candidate_indices.extend(contab_amount_index[indexed_amount])
+        
+        # Filtra solo candidati non ancora usati
+        candidati = contab.loc[
+            [idx for idx in candidate_indices if idx in contab.index and pd.isna(contab.at[idx, 'match_id'])]
         ]
         
         # Inizializza risultato: assumiamo che non sia stato trovato (MANCANTE)
@@ -141,11 +181,24 @@ def riconcilia_saldi(
             data_match = best_match['data']
             importo_match = best_match['importo']
             
+            # Aggiorna tracker duplicati (il conteggio contab verrà aggiornato dopo)
+            if rounded_imp not in duplicates_tracker:
+                duplicates_tracker[rounded_imp] = {
+                    'importo': rounded_imp,
+                    'banca_count': 0,
+                    'contab_count': 0,  # Verrà aggiornato dopo
+                    'matched_count': 0
+                }
+            duplicates_tracker[rounded_imp]['matched_count'] = duplicates_tracker[rounded_imp].get('matched_count', 0) + 1
+            
             if pd.notna(data_b) and pd.notna(data_match):
                 date_diff_days = abs((data_b - data_match).days)
                 note = f"Δ data {date_diff_days}g"
                 if date_diff_days > date_tolerance_days:
                     note += " (fuori tolleranza)"
+        # Aggiorna conteggio banca per duplicati
+        if rounded_imp in duplicates_tracker:
+            duplicates_tracker[rounded_imp]['banca_count'] = banca_amount_counts.get(rounded_imp, 0)
         
         # Aggiungi risultato: se status è "MANCANTE", significa che questo movimento
         # è presente in estratto conto ma NON nella scheda contabile
@@ -173,6 +226,27 @@ def riconcilia_saldi(
     # - Movimenti contabili che non hanno corrispondenza bancaria
     # ============================================================================
     orfani = contab[contab['match_id'].isnull()]  # Voci non matchate = orfani
+    
+    # Conta importi nella contabilità per duplicati
+    contab_amount_counts: Dict[float, int] = {}
+    for idx, row in contab.iterrows():
+        imp = abs(row['importo'])
+        if not pd.isna(imp):
+            rounded_imp = round(imp / amount_tolerance) * amount_tolerance
+            contab_amount_counts[rounded_imp] = contab_amount_counts.get(rounded_imp, 0) + 1
+    
+    # Aggiorna tracker duplicati con conteggi contabilità
+    for rounded_imp, count in contab_amount_counts.items():
+        if rounded_imp not in duplicates_tracker:
+            duplicates_tracker[rounded_imp] = {
+                'importo': rounded_imp,
+                'banca_count': 0,
+                'contab_count': count,
+                'matched_count': 0
+            }
+        else:
+            duplicates_tracker[rounded_imp]['contab_count'] = count
+    
     for idx, row in orfani.iterrows():
         risultati.append({
             "Data Banca": None,  # Non presente in banca
@@ -216,6 +290,32 @@ def riconcilia_saldi(
     if pd.isna(orfani_amount):
         orfani_amount = 0.0
     
+    # ============================================================================
+    # Analisi Duplicati
+    # ============================================================================
+    # Identifica importi che compaiono più volte e verifica se tutti sono matchati
+    duplicates_report = []
+    for rounded_imp, info in duplicates_tracker.items():
+        banca_count = info.get('banca_count', 0)
+        contab_count = info.get('contab_count', 0)
+        matched_count = info.get('matched_count', 0)
+        
+        # Considera duplicato se compare più di una volta in almeno uno dei due
+        if banca_count > 1 or contab_count > 1:
+            # Calcola quanti non sono matchati
+            unmatched_banca = max(0, banca_count - matched_count)
+            unmatched_contab = max(0, contab_count - matched_count)
+            
+            if unmatched_banca > 0 or unmatched_contab > 0:
+                duplicates_report.append({
+                    'importo': rounded_imp,
+                    'occorrenze_banca': banca_count,
+                    'occorrenze_contabilita': contab_count,
+                    'matchati': matched_count,
+                    'non_matchati_banca': unmatched_banca,
+                    'non_matchati_contabilita': unmatched_contab
+                })
+    
     summary = {
         "total_banca": len(banca),
         "total_contabilita": len(contab),
@@ -229,7 +329,8 @@ def riconcilia_saldi(
         "differenza_saldo": float(differenza_saldo),
         "importo_mancante": float(missing_amount),
         "importo_orfano": float(orfani_amount),
-        "is_balanced": abs(differenza_saldo) < amount_tolerance
+        "is_balanced": abs(differenza_saldo) < amount_tolerance,
+        "duplicates": duplicates_report  # Lista di importi duplicati con dettagli
     }
     
     logger.info(f"Reconciliation complete: {matched} matched, {missing} missing, {orfani_count} orphans")
