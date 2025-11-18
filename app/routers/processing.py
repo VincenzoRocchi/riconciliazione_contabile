@@ -202,7 +202,10 @@ async def process_matching_async(
             df_banca,
             df_contabilita,
             amount_tolerance=tolerance,
-            date_tolerance_days=settings.date_tolerance_days
+            date_tolerance_days=settings.date_tolerance_days,
+            max_combinations=getattr(settings, 'max_combinations', 5),
+            max_brute_force_iterations=getattr(settings, 'max_brute_force_iterations', 50000),
+            min_amount_for_brute_force=getattr(settings, 'min_amount_for_brute_force', 100.0)
         )
         
         # 4. Genera flags dalle voci mancanti/orfani
