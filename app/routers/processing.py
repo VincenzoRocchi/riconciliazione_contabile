@@ -9,6 +9,7 @@ import os
 import uuid
 from datetime import datetime, timedelta
 import logging
+from pathlib import Path
 
 from app.core.config import settings
 from app.core.models import (
@@ -23,6 +24,43 @@ logger = logging.getLogger(__name__)
 
 # Storage per job (in produzione usare Redis/DB)
 jobs_storage = {}
+
+
+def cleanup_old_files(directory: str, max_files: int = 10):
+    """
+    Mantiene solo i max_files più recenti in una directory, elimina i più vecchi.
+    
+    Args:
+        directory: Percorso della directory da pulire
+        max_files: Numero massimo di file da mantenere (default: 10)
+    """
+    try:
+        dir_path = Path(directory)
+        if not dir_path.exists():
+            return
+        
+        # Ottieni tutti i file (escludi directory e file nascosti)
+        files = [f for f in dir_path.iterdir() if f.is_file() and not f.name.startswith('.')]
+        
+        if len(files) <= max_files:
+            return
+        
+        # Ordina per data di modifica (più recente prima)
+        files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        
+        # Elimina i file più vecchi
+        files_to_delete = files[max_files:]
+        for file_to_delete in files_to_delete:
+            try:
+                file_to_delete.unlink()
+                logger.info(f"Eliminato file vecchio: {file_to_delete.name}")
+            except Exception as e:
+                logger.warning(f"Errore nell'eliminazione di {file_to_delete.name}: {e}")
+        
+        logger.info(f"Pulizia completata: mantenuti {max_files} file più recenti in {directory}")
+        
+    except Exception as e:
+        logger.error(f"Errore durante la pulizia di {directory}: {e}")
 
 
 @router.post("/process", response_model=ProcessingResponse)
@@ -61,6 +99,9 @@ async def process_document(
         with open(scheda_path, "wb") as f:
             content = await scheda_contabile.read()
             f.write(content)
+        
+        # Pulisci file vecchi da data_input (mantieni solo 10 più recenti)
+        cleanup_old_files(settings.data_input_path, max_files=10)
         
         # Avvia processing in background
         if background_tasks:
@@ -287,6 +328,9 @@ async def process_matching_async(
         # Salva anche CSV per analisi
         csv_path = os.path.join(settings.data_output_path, f"{job_id}_risultati.csv")
         risultati_df.to_csv(csv_path, index=False)
+        
+        # Pulisci file vecchi da data_output (mantieni solo 10 più recenti)
+        cleanup_old_files(settings.data_output_path, max_files=10)
         
         logger.info(f"Reconciliation completed for job {job_id}: {summary['matched']}/{summary['total_banca']} matched, "
                    f"saldo banca: {summary['saldo_banca']:.2f}, saldo contabilità: {summary['saldo_contabilita']:.2f}")

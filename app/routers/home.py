@@ -11,7 +11,7 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.core.models import ProcessingResponse, ProcessingStatus
-from app.routers.processing import jobs_storage, process_matching_async
+from app.routers.processing import jobs_storage, process_matching_async, cleanup_old_files
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -372,6 +372,9 @@ async def process_upload(
         with open(scheda_path, "wb") as f:
             content = await scheda_contabile.read()
             f.write(content)
+        
+        # Pulisci file vecchi da data_input (mantieni solo 10 più recenti)
+        cleanup_old_files(settings.data_input_path, max_files=10)
         
         # Avvia processing in background
         if background_tasks:
