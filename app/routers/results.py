@@ -136,10 +136,15 @@ def _render_results_page(result) -> HTMLResponse:
         status_color = "#b91c1c"
         status_text = "Discrepanze rilevate"
     
-    # Genera tabella problemi
+    # Genera tabella problemi (collassabile)
     problems_html = ""
     if result.flags:
-        problems_html = "<h3>Problemi rilevati</h3><div class='problems-list'>"
+        problems_count = len(result.flags)
+        problems_html = f"""
+        <details class="section-toggle">
+            <summary class="section-header">Problemi rilevati ({problems_count})</summary>
+            <div class="problems-list">
+        """
         for flag in result.flags:
             severity_class = "error" if flag.severity == "error" else "warning"
             problems_html += f"""
@@ -153,7 +158,10 @@ def _render_results_page(result) -> HTMLResponse:
                 </div>
             </div>
             """
-        problems_html += "</div>"
+        problems_html += """
+            </div>
+        </details>
+        """
     
     # Genera tabella risultati
     issue_tables = ""
@@ -180,26 +188,83 @@ def _render_results_page(result) -> HTMLResponse:
             return dataframe.to_html(classes=classes, escape=False, index=False)
         
         if not missing_df.empty:
-            issue_tables += "<h3>Movimenti in banca non registrati</h3>"
-            issue_tables += _df_to_html(missing_df, 'results-table')
+            issue_tables += f"""
+            <details class="section-toggle">
+                <summary class="section-header">Movimenti in banca non registrati ({len(missing_df)})</summary>
+                <div class="section-content">
+                    {_df_to_html(missing_df, 'results-table')}
+                </div>
+            </details>
+            """
         
         if not orfani_df.empty:
-            issue_tables += "<h3>Movimenti in contabilità assenti in banca</h3>"
-            issue_tables += _df_to_html(orfani_df, 'results-table')
+            issue_tables += f"""
+            <details class="section-toggle">
+                <summary class="section-header">Movimenti in contabilità assenti in banca ({len(orfani_df)})</summary>
+                <div class="section-content">
+                    {_df_to_html(orfani_df, 'results-table')}
+                </div>
+            </details>
+            """
         
         if not delta_df.empty:
-            issue_tables += "<h3>Match trovati oltre la tolleranza data</h3>"
-            issue_tables += _df_to_html(delta_df, 'results-table')
+            issue_tables += f"""
+            <details class="section-toggle">
+                <summary class="section-header">Match trovati oltre la tolleranza data ({len(delta_df)})</summary>
+                <div class="section-content">
+                    {_df_to_html(delta_df, 'results-table')}
+                </div>
+            </details>
+            """
         
         if not df.empty:
             detail_row_count = len(df)
             detail_table_html = df.to_html(classes='results-table full-table', escape=False, index=False)
 
+    # Genera sezione duplicati (collassabile, in cima)
+    duplicates_html = ""
+    duplicates_list = summary.get('duplicates', [])
+    if duplicates_list:
+        duplicates_html = f"""
+        <details class="section-toggle">
+            <summary class="section-header">Importi duplicati con problemi ({len(duplicates_list)})</summary>
+            <div class="section-content">
+                <table class="results-table duplicates-table">
+                    <thead>
+                        <tr>
+                            <th>Importo</th>
+                            <th>Occorrenze Banca</th>
+                            <th>Occorrenze Contabilità</th>
+                            <th>Matchati</th>
+                            <th>Non Matchati Banca</th>
+                            <th>Non Matchati Contabilità</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        """
+        for dup in duplicates_list:
+            duplicates_html += f"""
+                        <tr>
+                            <td>€ {dup.get('importo', 0):,.2f}</td>
+                            <td>{dup.get('occorrenze_banca', 0)}</td>
+                            <td>{dup.get('occorrenze_contabilita', 0)}</td>
+                            <td>{dup.get('matchati', 0)}</td>
+                            <td class="{'error-cell' if dup.get('non_matchati_banca', 0) > 0 else ''}">{dup.get('non_matchati_banca', 0)}</td>
+                            <td class="{'error-cell' if dup.get('non_matchati_contabilita', 0) > 0 else ''}">{dup.get('non_matchati_contabilita', 0)}</td>
+                        </tr>
+            """
+        duplicates_html += """
+                    </tbody>
+                </table>
+            </div>
+        </details>
+        """
+    
     detail_section_html = ""
     if detail_table_html:
         detail_section_html = f"""
         <details class="detail-toggle">
-            <summary>Dettaglio completo ({detail_row_count} righe)</summary>
+            <summary class="section-header">Dettaglio completo ({detail_row_count} righe)</summary>
             <div class="detail-content">
                 {detail_table_html}
             </div>
@@ -406,6 +471,49 @@ def _render_results_page(result) -> HTMLResponse:
                 font-weight: 700;
                 font-size: 1.1em;
             }}
+            .section-toggle {{
+                margin-top: 40px;
+                margin-bottom: 30px;
+                border: 1px solid #d1d5db;
+                border-radius: 10px;
+                background: #fafafa;
+                overflow: hidden;
+            }}
+            .section-header {{
+                cursor: pointer;
+                font-weight: 600;
+                padding: 16px 20px;
+                background: #1f2937;
+                color: white;
+                font-size: 1.1em;
+                list-style: none;
+            }}
+            .section-header::-webkit-details-marker {{
+                display: none;
+            }}
+            .section-toggle[open] .section-header {{
+                border-bottom: 1px solid #374151;
+            }}
+            .section-content {{
+                padding: 0;
+                background: white;
+            }}
+            .section-content .results-table {{
+                margin-top: 0;
+                border-radius: 0;
+            }}
+            .section-toggle .problems-list {{
+                padding: 20px;
+                background: white;
+            }}
+            .duplicates-table {{
+                margin-top: 0;
+            }}
+            .error-cell {{
+                background-color: #fef2f2;
+                color: #b91c1c;
+                font-weight: 600;
+            }}
         </style>
     </head>
     <body>
@@ -462,6 +570,8 @@ def _render_results_page(result) -> HTMLResponse:
                         </span>
                     </div>
                 </div>
+                
+                {duplicates_html}
                 
                 {issue_tables}
                 
