@@ -32,7 +32,7 @@ class ValidationFlag(str, Enum):
 class MatchingStatus(str, Enum):
     """Stati di matching delle voci"""
     MATCHED = "matched"
-    MISSING = "missing"  # Voce nello stratto conto non trovata nella scheda
+    MISSING = "missing"  # Voce nell'estratto conto non trovata nella scheda
 
 
 class ValidationIssue(BaseModel):
@@ -46,8 +46,8 @@ class ValidationIssue(BaseModel):
 
 class VoiceMatch(BaseModel):
     """Risultato matching di una singola voce"""
-    stratto_voice_id: str
-    stratto_voice: Dict[str, Any]
+    estratto_voice_id: str
+    estratto_voice: Dict[str, Any]
     match_status: MatchingStatus
     matched_scheda_voice_id: Optional[str] = None
     matched_scheda_voice: Optional[Dict[str, Any]] = None
@@ -56,7 +56,7 @@ class VoiceMatch(BaseModel):
 
 class MatchingResult(BaseModel):
     """Risultato del matching tra estratto conto e scheda contabile"""
-    total_stratto_voices: int
+    total_estratto_voices: int
     matched_voices: int
     missing_voices: int
     partial_matches: int
@@ -71,7 +71,7 @@ class FinalReport(BaseModel):
     job_id: str
     processing_status: ProcessingStatus
     matching_result: MatchingResult
-    stratto_conto_data: Dict[str, Any] = {}
+    estratto_conto_data: Dict[str, Any] = {}
     scheda_contabile_data: Dict[str, Any] = {}
     flags: List[ValidationIssue] = []
     overall_verdict: str  # "valid", "needs_review", "invalid"

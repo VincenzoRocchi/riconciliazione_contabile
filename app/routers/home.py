@@ -227,9 +227,9 @@ async def home():
                         <div>
                             <p class="section-title">Estratto conto bancario</p>
                             <div class="upload-box">
-                                <input type="file" id="stratto_conto" name="stratto_conto" form="uploadForm" accept=".pdf" required>
-                                <label for="stratto_conto">Seleziona file PDF</label>
-                                <div class="file-name" id="stratto-name">Nessun file selezionato</div>
+                                <input type="file" id="estratto_conto" name="estratto_conto" form="uploadForm" accept=".pdf" required>
+                                <label for="estratto_conto">Seleziona file PDF</label>
+                                <div class="file-name" id="estratto-name">Nessun file selezionato</div>
             </div>
                             <div class="helper-text">Il file verrà elaborato localmente. Nessun dato lascia il server.</div>
                             <div style="margin-top:16px;">
@@ -249,6 +249,14 @@ async def home():
                                 <div class="file-name" id="scheda-name">Nessun file selezionato</div>
                             </div>
                             <div class="helper-text">Usare il formato esportato dal gestionale per garantire la compatibilità.</div>
+                            <div style="margin-top:16px;">
+                                <label for="accounting_type" class="section-title" style="font-size:0.85rem; letter-spacing:0.08em;">Tipo di gestionale</label>
+                                <select id="accounting_type" name="accounting_type" form="uploadForm">
+                                    <option value="wolters_kluwer">Wolters Kluwer (OSRA BPoint)</option>
+                                    <option value="placeholder_1" disabled>Altro tipo 1 (in arrivo)</option>
+                                    <option value="placeholder_2" disabled>Altro tipo 2 (in arrivo)</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     <form id="uploadForm" action="/process" method="post" enctype="multipart/form-data" style="margin-top:28px;">
@@ -288,7 +296,7 @@ async def home():
                     label.textContent = name;
                 });
             }
-            bindFileInput('stratto_conto', 'stratto-name');
+            bindFileInput('estratto_conto', 'estratto-name');
             bindFileInput('scheda_contabile', 'scheda-name');
             
             document.getElementById('uploadForm').addEventListener('submit', function() {
@@ -304,9 +312,10 @@ async def home():
 
 @router.post("/process", response_class=HTMLResponse)
 async def process_upload(
-    stratto_conto: UploadFile = File(...),
+    estratto_conto: UploadFile = File(...),
     scheda_contabile: UploadFile = File(...),
     bank_type: str = Form("credit_agricole"),
+    accounting_type: str = Form("wolters_kluwer"),
     matching_tolerance: float = Form(0.01),
     background_tasks: BackgroundTasks = None
 ):
@@ -315,23 +324,24 @@ async def process_upload(
     Avvia riconciliazione e reindirizza alla pagina risultati
     
     Args:
-        stratto_conto: File PDF estratto conto
+        estratto_conto: File PDF estratto conto
         scheda_contabile: File PDF scheda contabile
         bank_type: Tipo di banca (default: "credit_agricole")
+        accounting_type: Tipo di gestionale (default: "wolters_kluwer")
         matching_tolerance: Tolleranza per matching importi
     """
     job_id = str(uuid.uuid4())
     
     # Salva file temporaneamente
-    stratto_path = os.path.join(settings.data_input_path, f"{job_id}_stratto_{stratto_conto.filename}")
+    estratto_path = os.path.join(settings.data_input_path, f"{job_id}_estratto_{estratto_conto.filename}")
     scheda_path = os.path.join(settings.data_input_path, f"{job_id}_scheda_{scheda_contabile.filename}")
     
     try:
         os.makedirs(settings.data_input_path, exist_ok=True)
         
-        # Salva stratto conto
-        with open(stratto_path, "wb") as f:
-            content = await stratto_conto.read()
+        # Salva estratto conto
+        with open(estratto_path, "wb") as f:
+            content = await estratto_conto.read()
             f.write(content)
         
         # Salva scheda contabile
@@ -344,10 +354,11 @@ async def process_upload(
             background_tasks.add_task(
                 process_matching_async,
                 job_id,
-                stratto_path,
+                estratto_path,
                 scheda_path,
                 matching_tolerance,
-                bank_type
+                bank_type,
+                accounting_type
             )
         
         jobs_storage[job_id] = {

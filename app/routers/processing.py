@@ -1,6 +1,6 @@
 """
 Processing endpoints per upload e processamento documenti
-Matching tra estratto conto (ground truth) e scheda contabile
+Verifica di coerenza tra estratto conto e scheda contabile
 """
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -212,8 +212,8 @@ async def process_matching_async(
         for _, row in risultati_df.iterrows():
             if row['Stato'] == 'OK':
                 voice_matches.append(VoiceMatch(
-                    stratto_voice_id="",
-                    stratto_voice={
+                    estratto_voice_id="",
+                    estratto_voice={
                         "data": str(row.get('Data Banca', '')),
                         "importo": row.get('Importo Banca', 0),
                         "descrizione": row.get('Descrizione Banca', '')
@@ -228,8 +228,8 @@ async def process_matching_async(
                 ))
             elif row['Stato'] == 'MANCANTE':
                 voice_matches.append(VoiceMatch(
-                    stratto_voice_id="",
-                    stratto_voice={
+                    estratto_voice_id="",
+                    estratto_voice={
                         "data": str(row.get('Data Banca', '')),
                         "importo": row.get('Importo Banca', 0),
                         "descrizione": row.get('Descrizione Banca', '')
@@ -239,7 +239,7 @@ async def process_matching_async(
                 ))
         
         matching_result = MatchingResult(
-            total_stratto_voices=summary["total_banca"],
+            total_estratto_voices=summary["total_banca"],
             matched_voices=summary["matched"],
             missing_voices=summary["missing_in_contabilita"],
             partial_matches=0,
@@ -256,7 +256,7 @@ async def process_matching_async(
             job_id=job_id,
             processing_status=ProcessingStatus.COMPLETED,
             matching_result=matching_result,
-            stratto_conto_data={
+            estratto_conto_data={
                 "transactions": df_banca.to_dict('records'),
                 "summary": {
                     "total": len(df_banca),

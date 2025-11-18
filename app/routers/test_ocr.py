@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 async def test_ocr(
     file: UploadFile = File(...),
     document_type: str = Form(..., description="Tipo documento: 'contabile' o 'estratto_conto'"),
-    bank_type: str = Form("credit_agricole", description="Tipo di banca (solo per estratto conto)")
+    bank_type: str = Form("credit_agricole", description="Tipo di banca (solo per estratto conto)"),
+    accounting_type: str = Form("wolters_kluwer", description="Tipo di gestionale (solo per scheda contabile)")
 ):
     """
     Endpoint di test per verificare il parsing OCR
@@ -25,6 +26,7 @@ async def test_ocr(
     - **file**: PDF da testare (consigliato poche pagine)
     - **document_type**: 'contabile' per scheda contabile, 'estratto_conto' per estratto conto bancario
     - **bank_type**: Tipo di banca (solo per estratto conto, default: 'credit_agricole')
+    - **accounting_type**: Tipo di gestionale (solo per scheda contabile, default: 'wolters_kluwer')
     
     Restituisce una pagina HTML che mostra i dati parsati
     """
@@ -48,8 +50,8 @@ async def test_ocr(
         ocr_service = OCRService()
         
         if document_type == 'contabile':
-            data = ocr_service.extract_from_accounting_sheet(temp_path)
-            title = "Test Parsing Scheda Contabile"
+            data = ocr_service.extract_from_accounting_sheet(temp_path, accounting_type=accounting_type)
+            title = f"Test Parsing Scheda Contabile ({accounting_type})"
         else:
             data = ocr_service.extract_from_bank_statement(temp_path, bank_type=bank_type)
             title = f"Test Parsing Estratto Conto ({bank_type})"
@@ -433,6 +435,14 @@ async def test_ocr_form():
                         <option value="placeholder_2" disabled>Altro tipo 2</option>
                     </select>
                 </div>
+                <div class="form-group" id="accounting_type_group" style="display:none;">
+                    <label for="accounting_type">Gestionale</label>
+                    <select id="accounting_type" name="accounting_type">
+                        <option value="wolters_kluwer">Wolters Kluwer (OSRA BPoint)</option>
+                        <option value="placeholder_1" disabled>Altro tipo 1</option>
+                        <option value="placeholder_2" disabled>Altro tipo 2</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label for="file">File PDF</label>
                     <input type="file" id="file" name="file" accept=".pdf" required>
@@ -446,6 +456,7 @@ async def test_ocr_form():
             function toggleBankType() {
                 const docType = document.getElementById('document_type').value;
                 document.getElementById('bank_type_group').style.display = (docType === 'estratto_conto') ? 'block' : 'none';
+                document.getElementById('accounting_type_group').style.display = (docType === 'contabile') ? 'block' : 'none';
             }
         </script>
     </body>
