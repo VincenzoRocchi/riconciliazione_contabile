@@ -17,6 +17,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt /code/
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copia i file di documentazione
+COPY ./docs /code/docs
+
 # Copia il resto del codice
 COPY ./app /code/app
 

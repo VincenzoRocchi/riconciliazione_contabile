@@ -308,9 +308,9 @@ def parse_date_contabile(date_str: str) -> Any:
     return None
 
 
-def parse_scheda_contabile(pdf_path: str) -> pd.DataFrame:
+def parse_scheda_contabile_wolters_kluwer(pdf_path: str) -> pd.DataFrame:
     """
-    Parser deterministico per scheda contabile basato su analisi PDF
+    Parser deterministico per scheda contabile Wolters Kluwer (OSRA BPoint) basato su analisi PDF
     
     Struttura identificata:
     - Header: Y < 137.1 (skip)
@@ -324,7 +324,7 @@ def parse_scheda_contabile(pdf_path: str) -> pd.DataFrame:
     
     Strategia: usa extract_words() + filtri header/footer + coordinate X fisse.
     """
-    logger.info(f"Parsing scheda contabile (DETERMINISTIC COORDINATE-BASED): {pdf_path}")
+    logger.info(f"Parsing scheda contabile Wolters Kluwer (DETERMINISTIC COORDINATE-BASED): {pdf_path}")
     rows = []
     
     try:
@@ -443,16 +443,44 @@ def parse_scheda_contabile(pdf_path: str) -> pd.DataFrame:
                         })
         
         if not rows:
-            logger.warning("No transactions found in scheda contabile")
+            logger.warning("No transactions found in scheda contabile Wolters Kluwer")
             return pd.DataFrame(columns=["data", "descrizione", "dare", "avere", "importo", "tipo", "fonte"])
         
         df = pd.DataFrame(rows)
-        logger.info(f"Successfully parsed {len(df)} transactions from scheda contabile")
+        logger.info(f"Successfully parsed {len(df)} transactions from scheda contabile Wolters Kluwer")
         return df
         
     except Exception as e:
-        logger.error(f"Error parsing scheda contabile: {e}")
+        logger.error(f"FATAL Error parsing scheda contabile Wolters Kluwer: {e}")
         raise
+
+
+def parse_scheda_contabile(pdf_path: str, accounting_type: str = "") -> pd.DataFrame:
+    """
+    Parser generico per scheda contabile che delega al parser specifico del gestionale
+    
+    Args:
+        pdf_path: Percorso del PDF
+        accounting_type: Tipo di gestionale:
+            - wolters_kluwer (OSRA BPoint)
+            - altre gestioni (in arrivo)
+    
+    Returns:
+        DataFrame con colonne: data, descrizione, importo, tipo, fonte
+    """
+    logger.info(f"Parsing scheda contabile con accounting_type={accounting_type}")
+    
+    # Default a wolters_kluwer se non specificato
+    if not accounting_type:
+        accounting_type = "wolters_kluwer"
+    
+    func_name = f"parse_scheda_contabile_{accounting_type}"
+    parser_func = globals().get(func_name)
+    
+    if parser_func and callable(parser_func):
+        return parser_func(pdf_path)
+    else:
+        raise ValueError(f"Accounting type '{accounting_type}' not supported. Could not find function '{func_name}'.")
 
 
 def parse_estratto_conto_credit_agricole(pdf_path: str) -> pd.DataFrame:

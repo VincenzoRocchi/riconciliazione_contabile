@@ -13,15 +13,19 @@ logger = logging.getLogger(__name__)
 class OCRService:
     """Servizio per estrazione dati da PDF nativi (solo pdfplumber, locale)"""
     
-    def extract_from_accounting_sheet(self, pdf_path: str) -> Dict[str, Any]:
+    def extract_from_accounting_sheet(self, pdf_path: str, accounting_type: str = "wolters_kluwer") -> Dict[str, Any]:
         """
         Estrae dati da scheda contabile usando parser locale (pdfplumber)
         PDF nativo, estrazione deterministica e veloce
+        
+        Args:
+            pdf_path: Percorso del PDF
+            accounting_type: Tipo di gestionale (default: "wolters_kluwer")
         """
-        logger.info(f"Extracting data from accounting sheet: {pdf_path}")
+        logger.info(f"Extracting data from accounting sheet: {pdf_path} (accounting_type: {accounting_type})")
         
         try:
-            df = parse_scheda_contabile(pdf_path)
+            df = parse_scheda_contabile(pdf_path, accounting_type=accounting_type)
             
             # Converti DataFrame in formato dict compatibile
             return {
@@ -32,7 +36,8 @@ class OCRService:
                 },
                 "metadata": {
                     "total_transactions": len(df),
-                    "parser": "pdfplumber_local"
+                    "parser": "pdfplumber_local",
+                    "accounting_type": accounting_type
                 },
                 "dataframe": df  # Mantieni anche il DataFrame per uso diretto
             }

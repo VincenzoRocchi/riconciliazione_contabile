@@ -9,10 +9,37 @@ import markdown
 router = APIRouter()
 
 
-def _render_markdown(file_path: str) -> str:
-    path = Path(file_path)
-    if not path.exists():
-        return f"<p>File {file_path} non trovato.</p>"
+def _find_markdown_file(filename: str) -> Path:
+    """
+    Cerca il file markdown in più posizioni:
+    1. Cartella docs/ nella working directory corrente
+    2. Cartella docs/ nella root del progetto (risalendo da __file__)
+    3. /code/docs/ (per Docker)
+    """
+    # 1. docs/ nella working directory corrente
+    cwd_docs_path = Path("docs") / filename
+    if cwd_docs_path.exists():
+        return cwd_docs_path
+    
+    # 2. docs/ nella root del progetto (risalendo da questo file: app/routers/documentation.py -> app -> root)
+    project_root = Path(__file__).parent.parent.parent
+    project_docs_path = project_root / "docs" / filename
+    if project_docs_path.exists():
+        return project_docs_path
+    
+    # 3. /code/docs/ (per Docker)
+    docker_docs_path = Path("/code/docs") / filename
+    if docker_docs_path.exists():
+        return docker_docs_path
+    
+    # Non trovato
+    return None
+
+
+def _render_markdown(filename: str) -> str:
+    path = _find_markdown_file(filename)
+    if path is None:
+        return f"<p>File {filename} non trovato. Cercato in: working directory, root progetto, /code/</p>"
     text = path.read_text(encoding="utf-8")
     return markdown.markdown(text, extensions=["fenced_code", "tables"])
 

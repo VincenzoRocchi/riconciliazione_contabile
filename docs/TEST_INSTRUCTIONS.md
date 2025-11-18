@@ -9,7 +9,7 @@ Docker e Docker Compose devono essere installati sul sistema e la porta 8000 dev
 ### Passo 1 – Posizionati nella cartella del progetto
 
 ```powershell
-cd E:\MLOPS_orchestrator
+cd E:\riconciliazione_contabile
 ```
 
 Assicurati che le directory `app\routers`, `app\services` e `app\core` siano presenti.
@@ -41,7 +41,7 @@ Utilizza `/debug-pdf` per caricare un PDF e visualizzare testo, coordinate e tab
 
 ### Scenario C – Riconciliazione end-to-end
 
-Dalla home carica l’estratto conto nella sezione dedicata e la scheda contabile nell’area sottostante, quindi premi “Avvia riconciliazione”. Attendi la conclusione del job e analizza la pagina dei risultati: pannello riepilogativo, verifica saldi, tabelle di mismatch e dettaglio completo. Ricordati di stampare o salvare il report per permettere all’app di eliminare i dati dalla memoria.
+Dalla home seleziona il tipo di banca per l'estratto conto, carica l'estratto conto nella sezione dedicata e la scheda contabile nell'area sottostante, quindi premi "Avvia riconciliazione". Attendi la conclusione del job e analizza la pagina dei risultati: pannello riepilogativo con statistiche, verifica saldi, tabelle separate per movimenti mancanti/orfani/differenze date, e dettaglio completo espandibile. Ricordati di stampare o salvare il report in PDF: questo permetterà all'app di eliminare automaticamente i dati dalla memoria.
 
 ### Scenario D – Consultazione documentazione
 
@@ -60,4 +60,4 @@ Pulizia file temporanei: al termine delle prove esegui `docker compose down -v` 
 
 ## Note operative
 
-I file caricati vengono salvati provvisoriamente in `data_input`, i report JSON/CSV finiscono in `data_output` e l’intero sistema lavora in locale senza chiamate esterne. L’autoreload di Uvicorn è attivo, quindi le modifiche al codice vengono applicate automaticamente durante lo sviluppo.
+I file caricati vengono salvati provvisoriamente in `data_input`, i report JSON/CSV finiscono in `data_output` e l'intero sistema lavora in locale senza chiamate esterne. I job di riconciliazione vengono mantenuti in memoria e vengono eliminati automaticamente quando l'utente stampa/salva il report, oppure ogni giorno a mezzanotte tramite un job di pulizia automatica. L'autoreload di Uvicorn è attivo, quindi le modifiche al codice vengono applicate automaticamente durante lo sviluppo.

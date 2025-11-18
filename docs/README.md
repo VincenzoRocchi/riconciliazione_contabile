@@ -1,6 +1,6 @@
 # Riconciliazione Contabile
 
-Sistema locale per riconciliazione tra estratto conto bancario e scheda contabile. Verifica che ogni transazione dell'estratto conto (ground truth) sia presente nella scheda contabile.
+Sistema locale per verifica di coerenza tra estratto conto bancario e scheda contabile. Confronta le transazioni per identificare movimenti mancanti o non corrispondenti.
 
 ## Caratteristiche
 
@@ -23,8 +23,12 @@ app/
 │   └── reconciliation_logic.py  # Logica di matching
 └── routers/                # Endpoint FastAPI
     ├── health.py           # Health check
-    ├── processing.py       # Riconciliazione completa
-    └── test_ocr.py         # Test parsing OCR
+    ├── home.py             # Pagina principale con form upload
+    ├── processing.py       # Riconciliazione completa (API)
+    ├── results.py          # Pagina risultati HTML
+    ├── test_ocr.py         # Test parsing OCR
+    ├── debug_pdf.py        # Debugger struttura PDF
+    └── documentation.py    # Pagina documentazione interna
 
 data_input/                  # PDF da processare
 data_output/                 # Report generati (JSON + CSV)
@@ -51,23 +55,36 @@ docker compose up -d --build
 
 ### 3. Accesso
 
+- **Home Page**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
-- **Test OCR**: http://localhost:8000/test-ocr
+- **Test Parser**: http://localhost:8000/test-ocr
+- **Debugger PDF**: http://localhost:8000/debug-pdf
+- **Documentazione**: http://localhost:8000/documentation
 - **Health Check**: http://localhost:8000/health
 
 ## Utilizzo
+
+### Interfaccia Web (Consigliato)
+
+1. Accedi alla home page: http://localhost:8000
+2. Seleziona il tipo di banca per l'estratto conto
+3. Carica l'estratto conto bancario e la scheda contabile
+4. Clicca "Avvia riconciliazione"
+5. Attendi il completamento e visualizza i risultati nella pagina dedicata
+6. Stampa o salva il report in PDF (i dati vengono eliminati dalla memoria dopo la stampa)
 
 ### Test Parsing (Consigliato Prima)
 
 1. Vai su http://localhost:8000/test-ocr
 2. Seleziona tipo documento (Scheda Contabile o Estratto Conto)
-3. Carica un PDF di test (poche pagine)
-4. Verifica i dati estratti nella pagina HTML
-5. Se tutto ok, procedi con il file completo
+3. Seleziona tipo banca (solo per estratto conto)
+4. Carica un PDF di test (poche pagine)
+5. Verifica i dati estratti nella pagina HTML
+6. Se tutto ok, procedi con il file completo
 
-### Riconciliazione Completa
+### Riconciliazione via API
 
-1. **Upload documenti** via API:
+1. **Upload documenti**:
    ```bash
    curl -X POST "http://localhost:8000/api/v1/process" \
      -F "stratto_conto=@estratto_conto.pdf" \
@@ -93,33 +110,39 @@ docker compose up -d --build
 4. Output → JSON report + CSV con mismatch evidenziati
 ```
 
-## Logica di Matching
+## Logica di Verifica Coerenza
 
-Il sistema verifica che ogni transazione dell'estratto conto sia presente nella scheda contabile:
+Il sistema esegue un controllo di coerenza tra estratto conto e scheda contabile:
 
-- **Matching su importo**: Valore assoluto con tolleranza (default ±0.01€)
-- **Matching su data**: Finestra di tolleranza (default ±5 giorni)
-- **Voci mancanti**: Alert per transazioni banca non trovate in contabilità
-- **Voci orfane**: Warning per transazioni contabilità non presenti in banca
-- **Calcolo saldi**: Verifica differenza saldo totale
+- **Matching basato solo su importo**: Confronto valore assoluto con tolleranza configurabile (default ±0.01€)
+- **Date per contesto**: Le date vengono estratte e utilizzate solo per identificare il match migliore quando ci sono più candidati con lo stesso importo, non per filtrare i match
+- **Voci mancanti**: Identifica transazioni presenti in estratto conto ma non nella scheda contabile
+- **Voci orfane**: Identifica transazioni presenti in scheda contabile ma non nell'estratto conto
+- **Note su differenze date**: Quando un match viene trovato ma la differenza di data supera la tolleranza (default ±30 giorni), viene segnalato nelle note
+- **Calcolo saldi**: Verifica differenza saldo totale a scopo informativo
 
 ## Output Report
 
-Il report include:
+Il report HTML include:
 
-- **Statistiche**: 
-  - Totale transazioni estratte
-  - Matched / Missing / Orfani
+- **Statistiche riepilogative**: 
+  - Totale transazioni estratte da entrambi i documenti
+  - Match trovati / Voci mancanti / Voci orfane
   - Completion rate
   
-- **Saldi**:
+- **Verifica saldi**:
   - Saldo totale estratto conto
   - Saldo totale scheda contabile
   - Differenza saldo
   
-- **Dettagli**:
-  - CSV con tutte le voci e stato matching
-  - Flags per ogni problema rilevato
+- **Tabelle problemi**:
+  - Movimenti in banca non registrati in contabilità
+  - Movimenti in contabilità assenti in banca
+  - Match trovati ma con differenza data fuori tolleranza
+  
+- **Dettaglio completo**: Tabella espandibile con tutte le voci e stato matching
+
+I report vengono mantenuti in memoria fino alla stampa/salvataggio da parte dell'utente, poi vengono eliminati automaticamente. Una pulizia automatica viene eseguita anche ogni giorno a mezzanotte per rimuovere job vecchi.
 
 ## Reverse Proxy (Opzionale)
 
@@ -147,8 +170,11 @@ Esempio configurazione NPM:
 
 - **Parser**: Usa pdfplumber per estrazione tabellare deterministica
 - **Formati supportati**: PDF nativi vettoriali
+- **Banche supportate**: Credit Agricole (altre in arrivo)
 - **Formati valuta**: Gestisce automaticamente italiano (1.250,50) e inglese (1,250.50)
 - **Date**: Gestisce formati vari (DD/MM/YYYY, DD.MM.YY, formato compatto 011024!)
+- **Gestione memoria**: I job vengono eliminati automaticamente dopo la stampa del report e ogni giorno a mezzanotte
+- **Configurazione**: Parametri configurabili via `.env` (tolleranza importi, tolleranza date, livello logging)
 
 ## Troubleshooting
 

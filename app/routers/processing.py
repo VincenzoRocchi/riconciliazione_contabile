@@ -27,30 +27,34 @@ jobs_storage = {}
 
 @router.post("/process", response_model=ProcessingResponse)
 async def process_document(
-    stratto_conto: UploadFile = File(..., description="Estratto conto bancario (ground truth)"),
+    estratto_conto: UploadFile = File(..., description="Estratto conto bancario"),
     scheda_contabile: UploadFile = File(..., description="Scheda contabile da verificare"),
     matching_tolerance: float = 0.01,
+    bank_type: str = "credit_agricole",
+    accounting_type: str = "wolters_kluwer",
     background_tasks: BackgroundTasks = None
 ):
     """
     Endpoint API per processare riconciliazione tra estratto conto e scheda contabile
     
-    - **stratto_conto**: Estratto conto bancario (ground truth)
+    - **estratto_conto**: Estratto conto bancario
     - **scheda_contabile**: Scheda contabile da verificare
     - **matching_tolerance**: Tolleranza per confronto importi (default 0.01 = 1 centesimo)
+    - **bank_type**: Tipo di banca (default: "credit_agricole")
+    - **accounting_type**: Tipo di gestionale (default: "wolters_kluwer")
     """
     job_id = str(uuid.uuid4())
     
     # Salva file temporaneamente
-    stratto_path = os.path.join(settings.data_input_path, f"{job_id}_stratto_{stratto_conto.filename}")
+    estratto_path = os.path.join(settings.data_input_path, f"{job_id}_estratto_{estratto_conto.filename}")
     scheda_path = os.path.join(settings.data_input_path, f"{job_id}_scheda_{scheda_contabile.filename}")
     
     try:
         os.makedirs(settings.data_input_path, exist_ok=True)
         
-        # Salva stratto conto
-        with open(stratto_path, "wb") as f:
-            content = await stratto_conto.read()
+        # Salva estratto conto
+        with open(estratto_path, "wb") as f:
+            content = await estratto_conto.read()
             f.write(content)
         
         # Salva scheda contabile
@@ -63,10 +67,11 @@ async def process_document(
             background_tasks.add_task(
                 process_matching_async,
                 job_id,
-                stratto_path,
+                estratto_path,
                 scheda_path,
                 matching_tolerance,
-                "credit_agricole"  # Default per API endpoint
+                bank_type,
+                accounting_type
             )
         
         jobs_storage[job_id] = {
@@ -107,10 +112,11 @@ async def get_processing_result(job_id: str):
 
 async def process_matching_async(
     job_id: str,
-    stratto_path: str,
+    estratto_path: str,
     scheda_path: str,
     matching_tolerance: float,
-    bank_type: str = "credit_agricole"
+    bank_type: str = "credit_agricole",
+    accounting_type: str = "wolters_kluwer"
 ):
     """
     Funzione asincrona per processare la riconciliazione tra estratto conto e scheda contabile
@@ -118,26 +124,27 @@ async def process_matching_async(
     
     Args:
         job_id: ID del job
-        stratto_path: Percorso estratto conto PDF
+        estratto_path: Percorso estratto conto PDF
         scheda_path: Percorso scheda contabile PDF
         matching_tolerance: Tolleranza per matching importi
         bank_type: Tipo di banca (default: "credit_agricole")
+        accounting_type: Tipo di gestionale (default: "wolters_kluwer")
     """
     try:
         jobs_storage[job_id]["status"] = ProcessingStatus.PROCESSING
         
-        # 1. Parsing - Stratto conto (ground truth)
-        logger.info(f"Parsing estratto conto: {stratto_path} (bank_type: {bank_type})")
+        # 1. Parsing - Estratto conto
+        logger.info(f"Parsing estratto conto: {estratto_path} (bank_type: {bank_type})")
         ocr_service = OCRService()
-        stratto_data = ocr_service.extract_from_bank_statement(stratto_path, bank_type=bank_type)
-        df_banca = stratto_data.get("dataframe")
+        estratto_data = ocr_service.extract_from_bank_statement(estratto_path, bank_type=bank_type)
+        df_banca = estratto_data.get("dataframe")
         
         if df_banca is None or df_banca.empty:
             raise ValueError("No data extracted from estratto conto")
         
         # 2. Parsing - Scheda contabile
-        logger.info(f"Parsing scheda contabile: {scheda_path}")
-        scheda_data = ocr_service.extract_from_accounting_sheet(scheda_path)
+        logger.info(f"Parsing scheda contabile: {scheda_path} (accounting_type: {accounting_type})")
+        scheda_data = ocr_service.extract_from_accounting_sheet(scheda_path, accounting_type=accounting_type)
         df_contabilita = scheda_data.get("dataframe")
         
         if df_contabilita is None or df_contabilita.empty:
