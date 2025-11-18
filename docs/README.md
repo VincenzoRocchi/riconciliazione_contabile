@@ -200,7 +200,3 @@ docker compose restart web
 # Rebuild completo
 docker compose up --build --force-recreate
 ```
-
-## Licenza
-
-Uso interno - Sistema proprietario
